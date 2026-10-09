@@ -7,12 +7,15 @@ class TokenType:
     Think of these as categories/labels, not values.
     """
     KEYWORD = "KEYWORD"    # SELECT, FROM, WHERE
-    IDENT = "IDENT"        # column names, table names -> name, salary, employees
-    NUMBER = "NUMBER"      # 300000
+    IDENT = "IDENT"        # column/table names, including double-quoted names
+    NUMBER = "NUMBER"      # 300000, -12, 3.5
     STRING = "STRING"      # 'Bengaluru'
-    OPERATOR = "OPERATOR"  # >, <, =
+    OPERATOR = "OPERATOR"  # >, <, =, >=, <=, !=
     COMMA = "COMMA"        # ,
     STAR = "STAR"          # *
+    LPAREN = "LPAREN"
+    RPAREN = "RPAREN"
+    SEMICOLON = "SEMICOLON"
     EOF = "EOF"            # marks the end of input
 
 

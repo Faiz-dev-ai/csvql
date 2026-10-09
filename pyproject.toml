@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "csvql"
+version = "0.1.0"
+description = "A streaming SQL-like query engine for CSV files"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+csvql = "csvql.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["csvql*"]
