@@ -1,18 +1,51 @@
 # CSVQL
 
-CSVQL is a small SQL-like query engine that reads CSV files directly. It uses a
-handwritten lexer, a recursive-descent parser, and a streaming executor. It has
-no runtime dependencies outside the Python standard library.
+**Run SQL-like queries directly on a CSV file—no database or import step.**
+
+Querying a CSV often means importing it into a database or writing a one-off
+script. CSVQL parses the query itself with a handwritten lexer and a
+recursive-descent parser. Ordinary filtering and projection queries process
+rows one at a time without accumulating the results. It is pure Python, with
+no runtime dependencies beyond the standard library.
+
+```bash
+python3 cli.py "SELECT department, COUNT(*), AVG(salary) FROM employees GROUP BY department ORDER BY AVG(salary) DESC" employees.csv
+```
+
+```text
+{'department': 'Marketing', 'COUNT(*)': 2, 'AVG(salary)': '630000'}
+{'department': 'Engineering', 'COUNT(*)': 4, 'AVG(salary)': '356250'}
+{'department': 'Sales', 'COUNT(*)': 2, 'AVG(salary)': '330000'}
+```
+
+**Measured:** peak process memory for a streaming filter query stayed around
+23 MB from 10,000 to 500,000 rows. Collecting the same output in a list reached
+about 222 MB at 500,000 rows. Grouping and sorting retain additional state;
+these measurements do not apply to them. See [Benchmarks](#benchmarks).
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Install locally](#install-locally)
+- [Query language](#query-language)
+- [Aggregates, grouping, and sorting](#aggregates-grouping-and-sorting)
+- [Values and missing data](#values-and-missing-data)
+- [How it works](#how-it-works)
+- [Python API](#python-api)
+- [Tests](#tests)
+- [Benchmarks](#benchmarks)
+- [Limits and roadmap](#limits-and-roadmap)
 
 ## Quick start
 
-Requires Python 3.10 or newer. From the repository folder:
+Requires **Python 3.10 or newer**. Clone the repository and run the included
+sample without installing the package:
 
 ```bash
+git clone https://github.com/Faiz-dev-ai/csvql.git
+cd csvql
 python3 cli.py "SELECT name, salary FROM employees WHERE salary >= 400000" employees.csv
 ```
-
-Output:
 
 ```text
 {'name': 'Arjun', 'salary': '450000'}
@@ -20,7 +53,12 @@ Output:
 {'name': 'Suresh', 'salary': '650000'}
 ```
 
+Already have the repository? Run the query from its folder.
+The **query comes first, file path second** for every entry point.
+
 ## Install locally
+
+From the repository folder, on macOS or Linux:
 
 ```bash
 python3 -m venv .venv
@@ -30,11 +68,11 @@ csvql --help
 csvql --version
 ```
 
-Installation uses setuptools as a build dependency; pip may need network access
-to obtain it. No runtime dependencies are downloaded for CSVQL itself. The
-local package version is 0.1.0; this does not imply a published PyPI release.
+Installation uses setuptools as a build dependency, so pip may need network
+access to fetch it. CSVQL has no runtime package dependencies. The local
+package version is 0.1.0; this does not imply a published PyPI release.
 
-The **query comes first, file path second** for every entry point:
+All three entry points accept the same arguments:
 
 ```bash
 csvql "SELECT name FROM employees LIMIT 2" employees.csv
@@ -42,26 +80,7 @@ python -m csvql "SELECT name FROM employees LIMIT 2" employees.csv
 python cli.py "SELECT name FROM employees LIMIT 2" employees.csv
 ```
 
-## Combined conditions
-
-```bash
-csvql "SELECT name FROM employees WHERE salary >= 300000 AND (city = 'Bengaluru' OR city = 'Pune') AND NOT name = 'Arjun' LIMIT 2;" employees.csv
-```
-
-Returns Karthik and Anjali. `LIMIT` counts matching output rows, not input rows.
-`LIMIT 0` validates the file/header and columns but reads no data rows.
-
-Double quotes denote identifiers; single quotes denote text. For a CSV with
-headers `First Name` and `Salary`, for example:
-
-```bash
-csvql 'SELECT "First Name", "Salary" FROM company_data WHERE "Salary" >= 17000' company_data.csv
-```
-
-`company_data.csv` is an optional local dataset and is not included in Git.
-Use doubled quotes to escape quotes: `'O''Brien'` and `"a""b"`.
-
-## Supported SQL subset
+## Query language
 
 ```text
 SELECT (* | item [, item ...]) FROM table
@@ -71,21 +90,55 @@ SELECT (* | item [, item ...]) FROM table
 [LIMIT non_negative_integer]
 [;]
 
-item := column | COUNT(*) | COUNT(column) | SUM(column) | AVG(column) | MIN(column) | MAX(column)
+item       := column | COUNT(*) | COUNT(column) | SUM(column) | AVG(column) | MIN(column) | MAX(column)
 expression := comparisons combined with NOT, AND, OR, and parentheses
 comparison := column (= | != | < | <= | > | >=) (number | 'text')
 ```
+
+### Combined conditions
+
+```bash
+csvql "SELECT name FROM employees WHERE salary >= 300000 AND (city = 'Bengaluru' OR city = 'Pune') AND NOT name = 'Arjun' LIMIT 2;" employees.csv
+```
+
+Returns Karthik and Anjali. `LIMIT` counts output rows, not input rows.
+`LIMIT 0` validates the header and referenced columns but reads no data rows.
 
 - Keywords are case-insensitive; column names and text values are case-sensitive.
 - Precedence, strongest first: parentheses/comparisons, `NOT`, `AND`, `OR`.
   `a = 1 OR b = 1 AND c = 1` means `a = 1 OR (b = 1 AND c = 1)`.
 - Numeric literals support integers and decimals, including `-1.5` and `.5`.
 - One optional trailing semicolon is accepted; multiple statements are rejected.
-- `FROM` is a descriptive name; the separate file path selects the actual CSV.
-  It is not a table registry and need not match the filename.
-- Reserved words (including `AND`, `OR`, `NOT`, `LIMIT`, `GROUP`, `ORDER`,
-  `BY`, `ASC`, `DESC`, and aggregate function names) must be double-quoted when
-  used as column names.
+- `FROM` is a descriptive name. The file path argument selects the actual CSV;
+  the name need not match the filename.
+- Reserved words—including `SELECT`, `FROM`, `WHERE`, `AND`, `OR`, `NOT`,
+  `LIMIT`, `GROUP`, `ORDER`, `BY`, `ASC`, `DESC`, and aggregate function names—must
+  be double-quoted when used as column names.
+
+### Quoted column names
+
+Double quotes denote identifiers; single quotes denote text. Use doubled
+quotes to escape a quote: `'O''Brien'` and `"a""b"`.
+
+For a self-contained example, save this as a new file named `people.csv`:
+
+```csv
+First Name,Salary
+Asha,18000
+Ravi,16000
+Meera,21000
+```
+
+Then run:
+
+```bash
+csvql 'SELECT "First Name", "Salary" FROM people WHERE "Salary" >= 17000' people.csv
+```
+
+```text
+{'First Name': 'Asha', 'Salary': '18000'}
+{'First Name': 'Meera', 'Salary': '21000'}
+```
 
 ## Aggregates, grouping, and sorting
 
@@ -95,18 +148,28 @@ csvql "SELECT department, COUNT(*), AVG(salary) FROM employees GROUP BY departme
 csvql "SELECT name, salary FROM employees ORDER BY salary DESC LIMIT 3" employees.csv
 ```
 
-COUNT, SUM, AVG, MIN, and MAX work globally or per group. WHERE filters before
-aggregation; LIMIT applies after grouping/sorting. ORDER BY supports multiple
-keys and ASC/DESC. Every selected plain column must be grouped in aggregate
-queries. See [analytical semantics and memory limits](docs/analytics.md).
+- Aggregates work globally or per group. `WHERE` filters before aggregation;
+  `LIMIT` applies after grouping and sorting.
+- `COUNT(*)` counts rows. `COUNT(column)` counts present cells, including empty
+  strings, but excludes absent cells.
+- `SUM` and `AVG` skip empty/whitespace-only and absent cells, and reject other
+  nonnumeric text. `SUM` uses exact decimal addition; `AVG` rounds to 28
+  significant decimal digits using round-half-even.
+- The CLI prints `SUM`/`AVG` results as decimal strings. `COUNT` returns an
+  integer; `MIN`/`MAX` preserve the chosen source string.
+- With zero matching rows, an **ungrouped** aggregate returns one result:
+  `COUNT` is 0 and the other aggregates are `None`. A grouped query returns
+  **no rows**. A file with no header is an error. `LIMIT 0` suppresses output.
+- Plain columns selected or ordered in an aggregate query must appear in
+  `GROUP BY`. Group keys preserve original text, so `001` and `1` are distinct.
+- `ORDER BY` supports multiple keys, `ASC` (default), and `DESC`. Ties retain
+  input order. Numeric-looking cells compare numerically; other cells compare
+  as case-sensitive text. Ascending puts numbers before text; descending
+  reverses these categories. Absent cells always sort last.
+- `MIN`/`MAX` use the same number/text ordering, skipping absent cells.
 
-SUM uses exact decimal addition. AVG rounds to 28 significant decimal digits.
-The CLI prints their values as decimal strings. COUNT returns an integer;
-MIN/MAX retain the chosen source string. Empty aggregates return None except
-COUNT, which returns 0.
-
-ORDER BY compares numeric-looking cells numerically, then text lexicographically;
-missing cells always sort last. Groups use the original text as their keys.
+See [analytical semantics and memory limits](docs/analytics.md) for the full
+rules, including empty cells, aggregate output types, and resource limits.
 
 ## Values and missing data
 
@@ -114,41 +177,71 @@ Unquoted numeric literals use exact `Decimal` comparisons. Quoted literals use
 text comparisons, preserving whitespace and leading zeros: `code = 1` matches
 both `001` and `1`, while `code = '1'` matches only `1`.
 
-Missing cells produce **unknown**, as do empty/nonnumeric cells used in numeric
-comparisons. `WHERE` keeps only true results. `NOT unknown` stays unknown;
-`false AND unknown` is false and `true OR unknown` is true. An explicitly empty
-cell can match `''`. See [the complete rules](docs/comparisons.md).
+Missing cells produce **unknown**, as do empty or nonnumeric cells used in a
+numeric comparison. `WHERE` retains only true results. `NOT unknown` stays
+unknown, `false AND unknown` is false, and `true OR unknown` is true. An
+explicitly empty cell can match `''`. See [the complete rules](docs/comparisons.md).
 
-Files are read as UTF-8 (an optional BOM is accepted). Output is one Python
-row dictionary per line, preserving source strings and representing missing
-cells as `None`. Aggregated values follow the rules above. This is not CSV or JSON output.
+Files are read as UTF-8, with an optional BOM. Output is one Python row
+dictionary per line, preserving source strings and showing absent cells as
+`None`. Aggregate values follow the rules above. This is human-readable output,
+not a CSV or JSON serialization format.
 
-## Architecture and streaming
+## How it works
 
 ```text
-SQL → lexer → tokens → parser → expression tree
-                                      ↓
-CSV → validate headers → filter rows → optional aggregate/group → optional sort
-                                                               ↓
-                                                   project → LIMIT → output
+SQL -> lexer -> tokens -> parser -> structured query + expression tree
+                                                |
+                                                v
+CSV -> validate headers -> filter -> optional aggregate/group -> optional sort
+                                                                     |
+                                                                     v
+                                                         project -> LIMIT -> output
 ```
 
-Filtering/projection queries yield results one at a time without retaining
-earlier rows. Global aggregates retain only accumulator state. GROUP BY stores
-per-group summaries, and ORDER BY buffers rows before sorting. Default limits
-are 100,000 groups and 100,000 sorted rows; use `--max-groups` and
-`--max-sort-rows` to configure them. These count limits are not byte-level RAM
-limits. There is no disk spilling or external sort.
+1. **Lexer:** recognizes tokens and rejects unexpected characters and unclosed
+   quotes with their positions.
+2. **Parser:** checks grammar and builds the query structure. `parse_or()` calls
+   `parse_and()`, which calls `parse_not()`. `parse_not()` handles negation and
+   parentheses, then delegates comparisons to `parse_condition()`. Precedence
+   follows from this structure.
+3. **Executor:** validates every referenced column against the CSV header before
+   processing data rows, then filters rows lazily. The analytics module handles
+   grouping, aggregation, and sorting when requested.
 
-CSV field-size limits still apply. For ordinary scans, LIMIT stops reading once
-enough matches are produced. Sorting/grouping must process the relevant input
-before LIMIT applies. Unscanned rows are not validated.
+| Operation | State retained |
+|---|---|
+| Filtering/projection | Query, headers, and the current row; no accumulated results |
+| Global aggregates | Accumulator state per aggregate |
+| `GROUP BY` | Group keys and aggregate state per group |
+| `ORDER BY` | Rows and sort keys |
 
-An input error late in the file can occur after earlier results have printed.
-Expected errors go to stderr with exit status 1; command-argument errors use
-status 2. Success uses status 0.
+For comparable row sizes, ordinary scans do not retain more results as row
+count grows. Memory still depends on row size, query size, and reader buffering;
+CSV field-size limits apply. Aggregate accumulator digit counts can also grow.
 
-Python API:
+Grouping and sorting default to limits of **100,000 groups** and **100,000 rows
+being sorted**. Configure them with `--max-groups` and `--max-sort-rows`.
+These are count limits, not byte-level RAM limits. There is no disk spilling
+or external sort.
+
+For ordinary scans, `LIMIT` stops reading after enough matches. Grouping and
+sorting must process the relevant input before `LIMIT` applies. Unscanned rows
+are not validated.
+
+Expected errors go to stderr as `Error: ...` and use exit status 1. Command-line
+argument errors use status 2; success uses status 0. Because results stream, a
+late input error may appear after earlier results have printed.
+
+```bash
+csvql "SELECT nme FROM employees" employees.csv
+```
+
+```text
+Error: Unknown column 'nme'. Available columns: id, name, department, salary, city
+```
+
+## Python API
 
 ```python
 from contextlib import closing
@@ -162,8 +255,8 @@ with closing(execute(query, "employees.csv")) as rows:
         print(row)
 ```
 
-Opening and validation happen on first iteration. Close an iterator if stopping
-early. Calling `list(rows)` deliberately collects all results in memory.
+Opening and validation happen on first iteration. Close the iterator when
+stopping early. Calling `list(rows)` deliberately collects all results in memory.
 
 ## Tests
 
@@ -171,12 +264,12 @@ early. Calling `list(rows)` deliberately collects all results in memory.
 python3 -B -m unittest discover -s tests -v
 ```
 
-Tests cover syntax, exact comparisons, errors, lazy reads, file cleanup,
-short-circuiting, all branches' column validation, and early limits. Boolean
-precedence and three-valued results are cross-checked against SQLite across
-all combinations of true, false, and missing numeric values. Analytical tests
-cover grouping against SQLite, stable sorting, aggregate precision, empty
-inputs, malformed queries, and resource-limit errors.
+The suite contains **82 test methods**, including parameterized subcases. It
+covers syntax, exact comparisons, error paths, lazy reads, file cleanup,
+short-circuiting, validation of every condition branch, and early limits.
+Boolean precedence and three-valued results are cross-checked against SQLite,
+as are selected grouped-query results. Analytics tests cover stable sorting,
+aggregate precision, empty inputs, malformed queries, and resource-limit errors.
 
 ## Benchmarks
 
@@ -184,25 +277,49 @@ inputs, malformed queries, and resource-limit errors.
 python3 -B benchmarks/benchmark.py --rows 10000 100000 500000 --output benchmarks/results.json
 ```
 
-The script generates temporary data, then runs each measurement in a fresh
-process. It compares streaming consumption against collecting the **same
-engine's output** in a list. Data generation and terminal output are excluded.
-It records file size, row count, elapsed time, throughput, and process peak RSS
-where supported. `--trace` additionally measures Python allocations and adds
-timing overhead. See [measured results and limitations](benchmarks/README.md).
+The script generates temporary data and runs each measurement in a fresh
+process. It compares streaming consumption against collecting **the same
+engine's output** in a list—not against a historical version. Data generation
+and terminal output are excluded. It records file size, row count, elapsed
+time, throughput, and peak process memory (RSS) where supported. `--trace`
+also measures Python allocations and adds timing overhead.
 
-## Current limits and roadmap
+Recorded run: Python 3.11.15, macOS arm64. Query:
 
-- No joins, arithmetic expressions, aliases, subqueries, `HAVING`, `DISTINCT`,
-  `IS NULL`, `LIKE`, `IN`, `OFFSET`, or writes.
-- No external sorting, disk spilling, or top-k optimization for ORDER BY LIMIT.
-- No scientific notation, leading `+`, or trailing-dot numeric literals.
-- Comparisons accept a column on the left and a literal on the right.
-- Expression trees deeper than 128 nodes are rejected; extremely nested parser
-  input also fails with a readable error.
-- Single-file scans only; no optimizer, indexes, or full SQL type system.
-- Multi-GB performance has not yet been established by the checked-in benchmark.
+```sql
+SELECT id, department, salary FROM generated WHERE salary >= 0
+```
 
-The planned eight implementation stages are present. Future extensions could
-include external sorting, disk spilling, output formats, and multi-GB benchmarks.
-The project implements a documented SQL subset, not the full SQL standard.
+| Rows | CSV size (MB) | Streaming peak RSS (MB) | Collected-list peak RSS (MB) |
+|---:|---:|---:|---:|
+| 10,000 | 0.239 | 22.68 | 26.66 |
+| 100,000 | 2.489 | 22.74 | 62.06 |
+| 500,000 | 12.889 | 22.76 | 221.81 |
+
+MB means 1,000,000 bytes. Values come from the saved
+[raw measurements](benchmarks/results.json).
+
+The measurements show the memory cost of retaining results as row count grows.
+They do **not** establish cold-disk throughput, performance on files larger than
+RAM, or the cost of grouping and sorting. Each case ran once, and freshly
+generated files may have been served from the OS cache. See the
+[method and limitations](benchmarks/README.md).
+
+## Limits and roadmap
+
+Not supported:
+
+- Joins, arithmetic expressions, aliases, subqueries, `HAVING`, `DISTINCT`,
+  `IS NULL`, `LIKE`, `IN`, `OFFSET`, and writes.
+- External sorting, disk spilling, or a top-k optimization for `ORDER BY ... LIMIT`.
+- Scientific notation, a leading `+`, and trailing-dot numeric literals such as `5.`.
+- Column-to-column comparisons: the left side must be a column, the right a literal.
+
+Expression depth greater than **128** is rejected; extremely nested parser input
+also fails with a readable error. CSVQL scans a single supplied file and has no
+optimizer, indexes, or full SQL type system. Multi-GB performance has not been
+established by the checked-in benchmark.
+
+Possible extensions include external merge sorting, spilling groups to disk,
+CSV/JSON output, performance comparisons with SQLite and pandas, and multi-GB
+benchmarks. CSVQL implements a documented SQL subset, not the full standard.
