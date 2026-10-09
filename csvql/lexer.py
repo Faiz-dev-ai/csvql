@@ -1,25 +1,23 @@
-# lexer.py
-# Turns a raw SQL string into a list of Token objects.
+# Turns SQL into tokens. Single quotes delimit text; double quotes delimit names.
+import re
 
+from csvql.errors import CsvqlError
 from csvql.tokens import Token, TokenType
 
-KEYWORDS = {"SELECT", "FROM", "WHERE"}
+KEYWORDS = {"SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "LIMIT", "GROUP", "BY", "ORDER", "ASC", "DESC", "COUNT", "SUM", "AVG", "MIN", "MAX"}
+NUMBER = re.compile(r"-?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)")
 
 
 def tokenize(text):
     tokens = []
     i = 0
     n = len(text)
-
     while i < n:
         ch = text[i]
-
-        # 1. Skip whitespace - it has no meaning, it's just a separator
         if ch.isspace():
             i += 1
             continue
 
-        # 2. Letters -> could be a KEYWORD or an IDENT (column/table name)
         if ch.isalpha() or ch == "_":
             start = i
             while i < n and (text[i].isalnum() or text[i] == "_"):
@@ -31,43 +29,62 @@ def tokenize(text):
                 tokens.append(Token(TokenType.IDENT, word))
             continue
 
-        # 3. Digits -> NUMBER
-        if ch.isdigit():
-            start = i
-            while i < n and text[i].isdigit():
-                i += 1
-            tokens.append(Token(TokenType.NUMBER, text[start:i]))
+        if ch in "0123456789-.":
+            match = NUMBER.match(text, i)
+            if match is None:
+                raise CsvqlError(f"Invalid number at position {i}")
+            end = match.end()
+            if end < n and (text[end].isalnum() or text[end] in "_."):
+                raise CsvqlError(f"Invalid number at position {i}")
+            tokens.append(Token(TokenType.NUMBER, match.group()))
+            i = end
             continue
 
-        # 4. Single-quoted string -> STRING
-        if ch == "'":
-            i += 1  # skip opening quote
-            start = i
-            while i < n and text[i] != "'":
+        if ch in ("'", '"'):
+            quote, start = ch, i
+            i += 1
+            value = []
+            while i < n:
+                if text[i] == quote:
+                    # SQL escapes a quote by doubling it: 'O''Brien'.
+                    if i + 1 < n and text[i + 1] == quote:
+                        value.append(quote)
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                value.append(text[i])
                 i += 1
-            value = text[start:i]
-            i += 1  # skip closing quote
-            tokens.append(Token(TokenType.STRING, value))
+            else:
+                label = "string" if quote == "'" else "quoted identifier"
+                raise CsvqlError(f"Unterminated {label} at position {start}")
+            token_type = TokenType.STRING if quote == "'" else TokenType.IDENT
+            tokens.append(Token(token_type, "".join(value)))
             continue
 
-        # 5. Comparison operators
+        # Match two-character operators before their one-character prefixes.
+        if text[i:i + 2] in (">=", "<=", "!="):
+            tokens.append(Token(TokenType.OPERATOR, text[i:i + 2]))
+            i += 2
+            continue
         if ch in "><=":
             tokens.append(Token(TokenType.OPERATOR, ch))
             i += 1
             continue
-
-        # 6. Comma
+        punctuation = {"(": TokenType.LPAREN, ")": TokenType.RPAREN, ";": TokenType.SEMICOLON}
+        if ch in punctuation:
+            tokens.append(Token(punctuation[ch], ch))
+            i += 1
+            continue
         if ch == ",":
             tokens.append(Token(TokenType.COMMA, ch))
             i += 1
             continue
-
-        # 7. Star
         if ch == "*":
             tokens.append(Token(TokenType.STAR, ch))
             i += 1
-            continue        # 8. Anything else is unexpected - fail loudly instead of silently ignoring it
-        raise ValueError(f"Unexpected character {ch!r} at position {i}")
+            continue
+        raise CsvqlError(f"Unexpected character {ch!r} at position {i}")
 
     tokens.append(Token(TokenType.EOF, None))
     return tokens

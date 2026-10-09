@@ -1,4 +1,3 @@
-"""Compatibility entry point: python3 cli.py 'SQL QUERY' file.csv."""
 from csvql.cli import main
 
 if __name__ == "__main__":
