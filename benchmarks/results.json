@@ -1,0 +1,67 @@
+{
+  "python": "3.11.15",
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "query": "SELECT id, department, salary FROM generated WHERE salary >= 0",
+  "results": [
+    {
+      "mode": "streaming",
+      "rows": 10000,
+      "seconds": 0.009549875001539476,
+      "rows_per_second": 1047134.1246234073,
+      "peak_rss_bytes": 22675456,
+      "peak_traced_bytes": null,
+      "tracing_enabled": false,
+      "file_bytes": 238911
+    },
+    {
+      "mode": "materialized",
+      "rows": 10000,
+      "seconds": 0.010017084001447074,
+      "rows_per_second": 998294.5135086612,
+      "peak_rss_bytes": 26656768,
+      "peak_traced_bytes": null,
+      "tracing_enabled": false,
+      "file_bytes": 238911
+    },
+    {
+      "mode": "streaming",
+      "rows": 100000,
+      "seconds": 0.09554350000689737,
+      "rows_per_second": 1046643.6753183723,
+      "peak_rss_bytes": 22740992,
+      "peak_traced_bytes": null,
+      "tracing_enabled": false,
+      "file_bytes": 2488911
+    },
+    {
+      "mode": "materialized",
+      "rows": 100000,
+      "seconds": 0.09974433400202543,
+      "rows_per_second": 1002563.2132444674,
+      "peak_rss_bytes": 62062592,
+      "peak_traced_bytes": null,
+      "tracing_enabled": false,
+      "file_bytes": 2488911
+    },
+    {
+      "mode": "streaming",
+      "rows": 500000,
+      "seconds": 0.4747277499991469,
+      "rows_per_second": 1053235.2490472666,
+      "peak_rss_bytes": 22757376,
+      "peak_traced_bytes": null,
+      "tracing_enabled": false,
+      "file_bytes": 12888911
+    },
+    {
+      "mode": "materialized",
+      "rows": 500000,
+      "seconds": 0.5063190420041792,
+      "rows_per_second": 987519.6437819792,
+      "peak_rss_bytes": 221806592,
+      "peak_traced_bytes": null,
+      "tracing_enabled": false,
+      "file_bytes": 12888911
+    }
+  ]
+}
